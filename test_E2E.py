@@ -37,8 +37,8 @@ def test(Model):
     test_file_name = 'fold{}_test.txt'.format(fold)
     te_y_position, te_y_cause, te_y_pair, te_x, te_sen_len, te_doc_len, te_distance = load_data_pair(
         './data_combine_eng/'+test_file_name, word_id_mapping, max_doc_len, max_sen_len)
-    pos_embedding = torch.load("./save/pos_embedding_fold_{}.pth".format(fold))
-    Model.load_state_dict(torch.load("./save/E2E-PextE_fold_{}.pth".format(fold)))
+    pos_embedding = torch.load("./save/pos_embedding_fold_1.pth")
+    Model.load_state_dict(torch.load("./save/E2E-PextE_fold_1.pth"))
     with torch.no_grad():
         Model.eval()
         te_pred_y_pos, te_pred_y_cause, te_pred_y_pair = Model(embedding_lookup(word_embedding, \
