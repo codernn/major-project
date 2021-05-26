@@ -7,8 +7,11 @@ from torch import optim
 from torch.nn import functional as F
 from utils.funcs import *
 from utils.prepare_data import *
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+import tensorflow as tf
+device = tf.test.gpu_device_name()
+if device != '/device:GPU:0':
+  raise SystemError('GPU device not found')
+print('Found GPU at: {}'.format(device_name))
 ############################################ FLAGS ############################################################
 train_file_path = './data_combine_eng/clause_keywords.csv'          # clause keyword file
 w2v_file = './data_combine_eng/w2v_200.txt'                         # embedding file
@@ -18,7 +21,7 @@ max_sen_len = 30                                                    # max number
 max_doc_len = 41                                                    # max number of tokens per document
 n_hidden = 100                                                      # number of hidden unit
 n_class = 2                                                         # number of distinct class
-training_epochs = 5                                                # number of train epochs
+training_epochs = 15                                                # number of train epochs
 batch_size = 32                                                     # number of example per batch
 learning_rate = 0.0050                                              # learning rate
 keep_prob1 = 0.8                                                    # word embedding training dropout keep prob
@@ -146,114 +149,126 @@ def train_and_eval(Model, pos_cause_criterion, pair_criterion, optimizer):
     acc_pos_list, p_pos_list, r_pos_list, f1_pos_list = [], [], [], []
     acc_pair_list, p_pair_list, r_pair_list, f1_pair_list = [], [], [], []
     #################################### LOOP OVER FOLDS ####################################
-    fold = 1
-    print('############# fold {} begin ###############'.format(fold))
-    ############################# RE-INITIALIZE MODEL PARAMETERS #############################
-    for layer in Model.parameters():
-        nn.init.uniform_(layer.data, -0.10, 0.10)
-    #################################### TRAIN/TEST DATA ####################################
-    train_file_name = 'fold{}_train.txt'.format(fold)
-    val_file_name = 'fold{}_val.txt'.format(fold)
-    tr_y_position, tr_y_cause, tr_y_pair, tr_x, tr_sen_len, tr_doc_len, tr_distance = load_data_pair(
-                    './data_combine_eng/'+train_file_name, word_id_mapping, max_doc_len, max_sen_len)
-    val_y_position, val_y_cause, val_y_pair, val_x, val_sen_len, val_doc_len, val_distance = \
-        load_data_pair('./data_combine_eng/'+val_file_name, word_id_mapping, max_doc_len, max_sen_len)
-    max_f1_cause, max_f1_pos, max_f1_pair, max_f1_avg = [-1.] * 4
-    #################################### LOOP OVER EPOCHS ####################################
-    for epoch in range(1, training_epochs + 1):
-        step = 1
-        #################################### GET BATCH DATA ####################################
-        for train, _ in get_batch_data_pair(
-            tr_x, tr_sen_len, tr_doc_len, tr_y_position, tr_y_cause, tr_y_pair, tr_distance, batch_size):
-            tr_x_batch, tr_sen_len_batch, tr_doc_len_batch, tr_true_y_pos, tr_true_y_cause, \
-            tr_true_y_pair, tr_distance_batch = train
-            Model.train()
-            tr_pred_y_pos, tr_pred_y_cause, tr_pred_y_pair = Model(embedding_lookup(word_embedding, \
-            tr_x_batch), embedding_lookup(pos_embedding, tr_distance_batch))
-            ############################## LOSS FUNCTION AND OPTIMIZATION ##############################
-            loss = pos_cause_criterion(tr_true_y_pos, tr_pred_y_pos, tr_doc_len_batch)*pos + \
-            pos_cause_criterion(tr_true_y_cause, tr_pred_y_cause, tr_doc_len_batch)*cause + \
-            pair_criterion(tr_true_y_pair, tr_pred_y_pair, tr_doc_len_batch)*pair
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            #################################### PRINT AFTER EPOCHS ####################################
-            if step % 25 == 0:
-                # print(Model.pair_linear.weight.shape); print(Model.pair_linear.weight.grad)
-                print('Fold {}, Epoch {}, step {}: train loss {:.4f} '.format(fold, epoch, step, loss))
-                acc, p, r, f1 = acc_prf_aux(tr_pred_y_pos, tr_true_y_pos, tr_doc_len_batch)
-                print('emotion_predict: train acc {:.4f} p {:.4f} r {:.4f} f1 score {:.4f}'.format(
-                        acc, p, r, f1))
-                acc, p, r, f1 = acc_prf_aux(tr_pred_y_cause, tr_true_y_cause, tr_doc_len_batch)
-                print('cause_predict: train acc {:.4f} p {:.4f} r {:.4f} f1 score {:.4f}'.format(
-                        acc, p, r, f1))
-                acc, p, r, f1 = acc_prf_pair(tr_pred_y_pair, tr_true_y_pair, tr_doc_len_batch)
-                print('pair_predict: train acc {:.4f} p {:.4f} r {:.4f} f1 score {:.4f}'.format(
-                        acc, p, r, f1)) 
-            step += 1
-        #################################### TEST ON 1 FOLD ####################################
-        with torch.no_grad():
-            Model.eval()
-            val_pred_y_pos, val_pred_y_cause, val_pred_y_pair = Model(embedding_lookup(word_embedding, \
-            val_x), embedding_lookup(pos_embedding, val_distance))
+    for fold in range(1, 11):
+        print('############# fold {} begin ###############'.format(fold))
+        ############################# RE-INITIALIZE MODEL PARAMETERS #############################
+        for layer in Model.parameters():
+            nn.init.uniform_(layer.data, -0.10, 0.10)
+        #################################### TRAIN/TEST DATA ####################################
+        train_file_name = 'fold{}_train.txt'.format(fold)
+        val_file_name = 'fold{}_val.txt'.format(fold)
+        tr_y_position, tr_y_cause, tr_y_pair, tr_x, tr_sen_len, tr_doc_len, tr_distance = load_data_pair(
+                        './data_combine_eng/'+train_file_name, word_id_mapping, max_doc_len, max_sen_len)
+        val_y_position, val_y_cause, val_y_pair, val_x, val_sen_len, val_doc_len, val_distance = \
+            load_data_pair('./data_combine_eng/'+val_file_name, word_id_mapping, max_doc_len, max_sen_len)
+        max_f1_cause, max_f1_pos, max_f1_pair, max_f1_avg = [-1.] * 4
+        #################################### LOOP OVER EPOCHS ####################################
+        for epoch in range(1, training_epochs + 1):
+            step = 1
+            #################################### GET BATCH DATA ####################################
+            for train, _ in get_batch_data_pair(
+                tr_x, tr_sen_len, tr_doc_len, tr_y_position, tr_y_cause, tr_y_pair, tr_distance, batch_size):
+                tr_x_batch, tr_sen_len_batch, tr_doc_len_batch, tr_true_y_pos, tr_true_y_cause, \
+                tr_true_y_pair, tr_distance_batch = train
+                Model.train()
+                tr_pred_y_pos, tr_pred_y_cause, tr_pred_y_pair = Model(embedding_lookup(word_embedding, \
+                tr_x_batch), embedding_lookup(pos_embedding, tr_distance_batch))
+                ############################## LOSS FUNCTION AND OPTIMIZATION ##############################
+                loss = pos_cause_criterion(tr_true_y_pos, tr_pred_y_pos, tr_doc_len_batch)*pos + \
+                pos_cause_criterion(tr_true_y_cause, tr_pred_y_cause, tr_doc_len_batch)*cause + \
+                pair_criterion(tr_true_y_pair, tr_pred_y_pair, tr_doc_len_batch)*pair
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                #################################### PRINT AFTER EPOCHS ####################################
+                if step % 25 == 0:
+                    # print(Model.pair_linear.weight.shape); print(Model.pair_linear.weight.grad)
+                    print('Fold {}, Epoch {}, step {}: train loss {:.4f} '.format(fold, epoch, step, loss))
+                    acc, p, r, f1 = acc_prf_aux(tr_pred_y_pos, tr_true_y_pos, tr_doc_len_batch)
+                    print('emotion_predict: train acc {:.4f} p {:.4f} r {:.4f} f1 score {:.4f}'.format(
+                            acc, p, r, f1))
+                    acc, p, r, f1 = acc_prf_aux(tr_pred_y_cause, tr_true_y_cause, tr_doc_len_batch)
+                    print('cause_predict: train acc {:.4f} p {:.4f} r {:.4f} f1 score {:.4f}'.format(
+                            acc, p, r, f1))
+                    acc, p, r, f1 = acc_prf_pair(tr_pred_y_pair, tr_true_y_pair, tr_doc_len_batch)
+                    print('pair_predict: train acc {:.4f} p {:.4f} r {:.4f} f1 score {:.4f}'.format(
+                            acc, p, r, f1)) 
+                step += 1
+            #################################### TEST ON 1 FOLD ####################################
+            with torch.no_grad():
+                Model.eval()
+                val_pred_y_pos, val_pred_y_cause, val_pred_y_pair = Model(embedding_lookup(word_embedding, \
+                val_x), embedding_lookup(pos_embedding, val_distance))
 
-            loss = pos_cause_criterion(val_y_position, val_pred_y_pos, val_doc_len)*pos + \
-            pos_cause_criterion(val_y_cause, val_pred_y_cause, val_doc_len)*cause + \
-            pair_criterion(val_y_pair, val_pred_y_pair, val_doc_len)*pair
-            print('Fold {} val loss {:.4f}'.format(fold, loss))
-            acc, p, r, f1 = acc_prf_aux(val_pred_y_pos, val_y_position, val_doc_len)
-            result_avg_pos = [acc, p, r, f1]
-            if f1 > max_f1_pos:
-                max_acc_pos, max_p_pos, max_r_pos, max_f1_pos = acc, p, r, f1
-            print('emotion_predict: val acc {:.4f} p {:.4f} r {:.4f} f1 {:.4f}'.format(acc, p, r, f1))
-            print('max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}\n'.format(
-                max_acc_pos, max_p_pos, max_r_pos, max_f1_pos))
+                loss = pos_cause_criterion(val_y_position, val_pred_y_pos, val_doc_len)*pos + \
+                pos_cause_criterion(val_y_cause, val_pred_y_cause, val_doc_len)*cause + \
+                pair_criterion(val_y_pair, val_pred_y_pair, val_doc_len)*pair
+                print('Fold {} val loss {:.4f}'.format(fold, loss))
+                acc, p, r, f1 = acc_prf_aux(val_pred_y_pos, val_y_position, val_doc_len)
+                result_avg_pos = [acc, p, r, f1]
+                if f1 > max_f1_pos:
+                    max_acc_pos, max_p_pos, max_r_pos, max_f1_pos = acc, p, r, f1
+                print('emotion_predict: val acc {:.4f} p {:.4f} r {:.4f} f1 {:.4f}'.format(acc, p, r, f1))
+                print('max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}\n'.format(
+                    max_acc_pos, max_p_pos, max_r_pos, max_f1_pos))
 
-            acc, p, r, f1 = acc_prf_aux(val_pred_y_cause, val_y_cause, val_doc_len)
-            result_avg_cause = [acc, p, r, f1]
-            if f1 > max_f1_cause:
-                max_acc_cause, max_p_cause, max_r_cause, max_f1_cause = acc, p, r, f1
-            print('cause_predict: val acc {:.4f} p {:.4f} r {:.4f} f1 {:.4f}'.format(acc, p, r, f1))
-            print('max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}\n'.format(
-                max_acc_cause, max_p_cause, max_r_cause, max_f1_cause))
+                acc, p, r, f1 = acc_prf_aux(val_pred_y_cause, val_y_cause, val_doc_len)
+                result_avg_cause = [acc, p, r, f1]
+                if f1 > max_f1_cause:
+                    max_acc_cause, max_p_cause, max_r_cause, max_f1_cause = acc, p, r, f1
+                print('cause_predict: val acc {:.4f} p {:.4f} r {:.4f} f1 {:.4f}'.format(acc, p, r, f1))
+                print('max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}\n'.format(
+                    max_acc_cause, max_p_cause, max_r_cause, max_f1_cause))
 
-            acc, p, r, f1 = acc_prf_pair(val_pred_y_pair, val_y_pair, val_doc_len)
-            result_avg_pair = [acc, p, r, f1]
-            if f1 > max_f1_pair:
-                max_acc_pair, max_p_pair, max_r_pair, max_f1_pair = acc, p, r, f1
-            print('pair_predict: val acc {:.4f} p {:.4f} r {:.4f} f1 {:.4f}'.format(acc, p, r, f1))
-            print('max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}\n'.format(
-                max_acc_pair, max_p_pair, max_r_pair, max_f1_pair))
+                acc, p, r, f1 = acc_prf_pair(val_pred_y_pair, val_y_pair, val_doc_len)
+                result_avg_pair = [acc, p, r, f1]
+                if f1 > max_f1_pair:
+                    max_acc_pair, max_p_pair, max_r_pair, max_f1_pair = acc, p, r, f1
+                print('pair_predict: val acc {:.4f} p {:.4f} r {:.4f} f1 {:.4f}'.format(acc, p, r, f1))
+                print('max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}\n'.format(
+                    max_acc_pair, max_p_pair, max_r_pair, max_f1_pair))
 
-        #################################### STORE BETTER PAIR F1 ####################################
-        if result_avg_pair[-1] > max_f1_avg:
-            torch.save(pos_embedding, "./save/pos_embedding_fold_{}.pth".format(fold))
-            torch.save(Model.state_dict(), "./save/E2E-PextE_fold_{}.pth".format(fold))
-            max_f1_avg = result_avg_pair[-1]
-            result_avg_cause_max = result_avg_cause
-            result_avg_pos_max = result_avg_pos
-            result_avg_pair_max = result_avg_pair
+            #################################### STORE BETTER PAIR F1 ####################################
+            if result_avg_pair[-1] > max_f1_avg:
+                torch.save(pos_embedding, "./save/pos_embedding_fold_{}.pth".format(fold))
+                torch.save(Model.state_dict(), "./save/E2E-PextE_fold_{}.pth".format(fold))
+                max_f1_avg = result_avg_pair[-1]
+                result_avg_cause_max = result_avg_cause
+                result_avg_pos_max = result_avg_pos
+                result_avg_pair_max = result_avg_pair
 
-        print('avg max cause: max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}'.format(
-            result_avg_cause_max[0], result_avg_cause_max[1], result_avg_cause_max[2], result_avg_cause_max[3]))
-        print('avg max pos: max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}'.format(
-            result_avg_pos_max[0], result_avg_pos_max[1], result_avg_pos_max[2], result_avg_pos_max[3]))
-        print('avg max pair: max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}\n'.format(
-            result_avg_pair_max[0], result_avg_pair_max[1], result_avg_pair_max[2], result_avg_pair_max[3]))
+            print('avg max cause: max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}'.format(
+                result_avg_cause_max[0], result_avg_cause_max[1], result_avg_cause_max[2], result_avg_cause_max[3]))
+            print('avg max pos: max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}'.format(
+                result_avg_pos_max[0], result_avg_pos_max[1], result_avg_pos_max[2], result_avg_pos_max[3]))
+            print('avg max pair: max_acc {:.4f} max_p {:.4f} max_r {:.4f} max_f1 {:.4f}\n'.format(
+                result_avg_pair_max[0], result_avg_pair_max[1], result_avg_pair_max[2], result_avg_pair_max[3]))
 
-    print('############# fold {} end ###############'.format(fold))
-    acc_cause_list.append(result_avg_cause_max[0])
-    p_cause_list.append(result_avg_cause_max[1])
-    r_cause_list.append(result_avg_cause_max[2])
-    f1_cause_list.append(result_avg_cause_max[3])
-    acc_pos_list.append(result_avg_pos_max[0])
-    p_pos_list.append(result_avg_pos_max[1])
-    r_pos_list.append(result_avg_pos_max[2])
-    f1_pos_list.append(result_avg_pos_max[3])
-    acc_pair_list.append(result_avg_pair_max[0])
-    p_pair_list.append(result_avg_pair_max[1])
-    r_pair_list.append(result_avg_pair_max[2])
-    f1_pair_list.append(result_avg_pair_max[3])
+        print('############# fold {} end ###############'.format(fold))
+        acc_cause_list.append(result_avg_cause_max[0])
+        p_cause_list.append(result_avg_cause_max[1])
+        r_cause_list.append(result_avg_cause_max[2])
+        f1_cause_list.append(result_avg_cause_max[3])
+        acc_pos_list.append(result_avg_pos_max[0])
+        p_pos_list.append(result_avg_pos_max[1])
+        r_pos_list.append(result_avg_pos_max[2])
+        f1_pos_list.append(result_avg_pos_max[3])
+        acc_pair_list.append(result_avg_pair_max[0])
+        p_pair_list.append(result_avg_pair_max[1])
+        r_pair_list.append(result_avg_pair_max[2])
+        f1_pair_list.append(result_avg_pair_max[3])
+
+    #################################### FINAL TEST RESULTS ON 10 FOLDS ####################################
+    all_results = [acc_cause_list, p_cause_list, r_cause_list, f1_cause_list, \
+    acc_pos_list, p_pos_list, r_pos_list, f1_pos_list, acc_pair_list, p_pair_list, r_pair_list, f1_pair_list,]
+    acc_cause, p_cause, r_cause, f1_cause, acc_pos, p_pos, r_pos, f1_pos, acc_pair, p_pair, r_pair, f1_pair = \
+        map(lambda x: np.array(x).mean(), all_results)
+    print('\ncause_predict: val f1 in 10 fold: {}'.format(np.array(f1_cause_list).reshape(-1,1)))
+    print('average : acc {:.4f} p {:.4f} r {:.4f} f1 {:.4f}\n'.format(acc_cause, p_cause, r_cause, f1_cause))
+    print('emotion_predict: val f1 in 10 fold: {}'.format(np.array(f1_pos_list).reshape(-1,1)))
+    print('average : acc {:.4f} p {:.4f} r {:.4f} f1 {:.4f}\n'.format(acc_pos, p_pos, r_pos, f1_pos))
+    print('pair_predict: val f1 in 10 fold: {}'.format(np.array(f1_pair_list).reshape(-1,1)))
+    print('average : acc {:.4f} p {:.4f} r {:.4f} f1 {:.4f}\n'.format(acc_pair, p_pair, r_pair, f1_pair))
 
 ############################################### MAIN ########################################################
 def main():
