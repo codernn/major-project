@@ -11,7 +11,7 @@ import tensorflow as tf
 device = tf.test.gpu_device_name()
 if device != '/device:GPU:0':
   raise SystemError('GPU device not found')
-print('Found GPU at: {}'.format(device_name))
+print('Found GPU at: {}'.format(device))
 ############################################ FLAGS ############################################################
 train_file_path = './data_combine_eng/clause_keywords.csv'          # clause keyword file
 w2v_file = './data_combine_eng/w2v_200.txt'                         # embedding file
