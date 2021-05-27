@@ -183,3 +183,17 @@ def acc_prf_pair(pred_y, true_y, doc_len):
         pred_indices_masked_list.extend(pred_indices_masked)
     acc, p, r, f1 = metrics(true_indices_masked_list, pred_indices_masked_list)
     return acc, p, r, f1
+
+def acc_prf_1st_step(pred_y, true_y, doc_len):
+    true_indices_masked_list = []; pred_indices_masked_list = []
+    for i in range(len(doc_len)):
+        true_y_masked = getmask(true_y[i].clone(), doc_len[i])
+        pred_y_masked = getmask(pred_y[i].clone(), doc_len[i])
+        _, true_indices_masked = torch.max(true_y_masked, 1)
+        _, pred_indices_masked = torch.max(pred_y_masked, 1)
+        # if i==len(doc_len)/2: 
+        #     print(true_indices_masked); print(pred_indices_masked)
+        true_indices_masked_list.extend(true_indices_masked)
+        pred_indices_masked_list.extend(pred_indices_masked)
+    acc, p, r, f1 = metrics(true_indices_masked_list, pred_indices_masked_list)
+    return acc, p, r, f1
