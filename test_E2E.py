@@ -32,7 +32,7 @@ def test(Model):
     acc_pair_list, p_pair_list, r_pair_list, f1_pair_list = [], [], [], []
     #################################### LOOP OVER FOLDS ####################################
     for i in range(1, 11):
-        fold = 1
+        fold = i
         print('############# fold {} begin ###############'.format(fold))
         #################################### LOAD TEST DATA ####################################
         test_file_name = 'fold{}_test.txt'.format(fold)
