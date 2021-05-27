@@ -31,10 +31,10 @@ pair = 2.5                                                          # lambda3
 diminish_factor = 0.400                                             # give less weight to -ve examples
 
 ############################################ MODEL ############################################################
-class E2E_PextC(nn.Module):
+class E2E_PextE(nn.Module):
     def __init__(self, embedding_dim, embedding_dim_pos, sen_len, doc_len, keep_prob1, keep_prob2, \
                  keep_prob3, n_hidden, n_class):
-        super(E2E_PextC, self).__init__()
+        super(E2E_PextE, self).__init__()
         self.embedding_dim = embedding_dim; self.embedding_dim_pos = embedding_dim_pos 
         self.sen_len = sen_len; self.doc_len = doc_len
         self.keep_prob1 = keep_prob1; self.keep_prob2 = keep_prob2
@@ -49,8 +49,8 @@ class E2E_PextC(nn.Module):
         self.pair_linear1 = nn.Linear(4*n_hidden + embedding_dim_pos, n_hidden//2)
         self.pair_linear2 = nn.Linear(n_hidden//2, n_class)
         self.word_bilstm = nn.LSTM(embedding_dim, n_hidden, batch_first = True, bidirectional = True)
-        self.cause_bilstm = nn.LSTM(2*n_hidden, n_hidden, n_hidden, batch_first = True, bidirectional = True)
-        self.pos_bilstm = nn.LSTM(2*n_hidden + n_class, batch_first = True, bidirectional = True)
+        self.cause_bilstm = nn.LSTM(2*n_hidden + n_class, n_hidden, batch_first = True, bidirectional = True)
+        self.pos_bilstm = nn.LSTM(2*n_hidden, n_hidden, batch_first = True, bidirectional = True)
         self.attention = Attention(n_hidden, sen_len)
 
     def get_clause_embedding(self, x):
@@ -69,7 +69,7 @@ class E2E_PextC(nn.Module):
 
     def get_emotion_prediction(self, x):
         '''
-        input shape: [batch_size, doc_len, 2 * n_hidden + n_class]
+        input shape: [batch_size, doc_len, 2 * n_hidden]
         output(s) shape: [batch_size, doc_len, 2 * n_hidden], [batch_size, doc_len, n_class]
         '''
         x_context, hidden_states = self.pos_bilstm(x.float())
@@ -85,7 +85,7 @@ class E2E_PextC(nn.Module):
 
     def get_cause_prediction(self, x):
         '''
-        input shape: [batch_size, doc_len, 2 * n_hidden]
+        input shape: [batch_size, doc_len, 2 * n_hidden + n_class]
         output(s) shape: [batch_size, doc_len, 2 * n_hidden], [batch_size, doc_len, n_class]
         '''
         x_context, hidden_states = self.cause_bilstm(x.float())
@@ -126,9 +126,9 @@ class E2E_PextC(nn.Module):
                          [batch_size, doc_len * doc_len, n_class]
         '''
         s = self.get_clause_embedding(x)
-        x_cause, pred_cause = self.get_cause_prediction(s)
-        s_pred_cause = torch.cat([s, pred_cause], 2)
-        x_pos, pred_pos = self.get_emotion_prediction(s_pred_cause)
+        x_pos, pred_pos = self.get_emotion_prediction(s)
+        s_pred_pos = torch.cat([s, pred_pos], 2)
+        x_cause, pred_cause = self.get_cause_prediction(s_pred_pos)
         pred_pair = self.get_pair_prediction(x_pos, x_cause, distance)
         return pred_pos, pred_cause, pred_pair
 
@@ -228,7 +228,7 @@ def train_and_eval(Model, pos_cause_criterion, pair_criterion, optimizer):
             #################################### STORE BETTER PAIR F1 ####################################
             if result_avg_pair[-1] > max_f1_avg:
                 torch.save(pos_embedding, "./save/pos_embedding_fold_{}.pth".format(fold))
-                torch.save(Model.state_dict(), "./save/E2E-EC_fold_{}.pth".format(fold))
+                torch.save(Model.state_dict(), "./save/E2E-PextE_fold_{}.pth".format(fold))
                 max_f1_avg = result_avg_pair[-1]
                 result_avg_cause_max = result_avg_cause
                 result_avg_pos_max = result_avg_pos
@@ -269,7 +269,7 @@ def train_and_eval(Model, pos_cause_criterion, pair_criterion, optimizer):
 
 ############################################### MAIN ########################################################
 def main():
-    Model = E2E_PextC(embedding_dim, embedding_dim_pos, max_sen_len, max_doc_len, \
+    Model = E2E_PextE(embedding_dim, embedding_dim_pos, max_sen_len, max_doc_len, \
     keep_prob1, keep_prob2, keep_prob3, n_hidden, n_class)
     Model.to(device)
     print(Model)
